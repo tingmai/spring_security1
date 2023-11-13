@@ -1,0 +1,69 @@
+
+
+SecurityConfiguration(Update)
+
+@Configuration
+public class SecurityConfiguration{
+	
+	@Bean
+    public BCryptPasswordEncoder passwordEncoder() {
+        BCryptPasswordEncoder bCryptPasswordEncoder = new BCryptPasswordEncoder();
+        return bCryptPasswordEncoder;
+    }
+   
+	@Bean
+	public UserDetailsService userDetailsService(BCryptPasswordEncoder bCryptPasswordEncoder) {
+	    InMemoryUserDetailsManager manager = new InMemoryUserDetailsManager();
+	    manager.createUser(User.withUsername("user")
+	      .password(bCryptPasswordEncoder.encode("userPass"))
+	      .roles("USER")
+	      .build());
+	    manager.createUser(User.withUsername("admin")
+	      .password(bCryptPasswordEncoder.encode("adminPass"))
+	      .roles("USER", "ADMIN")
+	      .build());
+	    return manager;
+	}
+	
+	@Bean
+	public AuthenticationManager authenticationManager(HttpSecurity http, BCryptPasswordEncoder bCryptPasswordEncoder, UserDetailsService userDetailsService) 
+	  throws Exception {
+	    return http.getSharedObject(AuthenticationManagerBuilder.class)
+	      .userDetailsService(userDetailsService)
+	      .passwordEncoder(bCryptPasswordEncoder)
+	      .and()
+	      .build();
+	}
+	
+	
+	@Bean
+	public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+	    http.csrf()
+	      .disable()
+	      .authorizeRequests()
+	      .requestMatchers(HttpMethod.DELETE)
+	      .hasRole("ADMIN")
+	      .requestMatchers("/admin/**")
+	      .hasAnyRole("ADMIN")
+	      .requestMatchers("/user/**")
+	      .hasAnyRole("USER", "ADMIN")
+	      .requestMatchers("/login/**")
+	      .anonymous()
+	      .anyRequest()
+	      .authenticated()
+	      .and()
+	      .httpBasic()
+	      .and()
+	      .sessionManagement()
+	      .sessionCreationPolicy(SessionCreationPolicy.STATELESS);
+
+	    return http.build();
+	}
+	
+	
+	
+	
+	
+	
+	
+}
