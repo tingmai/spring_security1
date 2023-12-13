@@ -1,0 +1,798 @@
+SecurityConfiguration
+
+
+package com.example.demo;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
+import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.WebSecurityCustomizer;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.web.SecurityFilterChain;
+
+@Configuration
+public class SecurityConfiguration {
+	
+	@Autowired
+	MyUserDetailsService userDetailsService;
+
+
+	@Bean
+	public DaoAuthenticationProvider authenticationProvider() {
+		DaoAuthenticationProvider auth=new DaoAuthenticationProvider();
+		auth.setPasswordEncoder(passwordEncoder());
+		auth.setUserDetailsService(userDetailsService);
+		return auth;
+	}
+	
+
+	@Bean
+	public BCryptPasswordEncoder passwordEncoder() {
+		return new BCryptPasswordEncoder();
+	}
+
+	@Bean
+	public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+	
+		http.authorizeHttpRequests()
+		.requestMatchers("/","/frontend/**","/*.png","/*.jpg","/*.css","/*.js").permitAll()
+		.requestMatchers("/item-images/**").permitAll()
+		.requestMatchers("/category-images/**").permitAll()
+		.requestMatchers("/register").permitAll()
+		.requestMatchers("/registerbtn").permitAll()
+		.requestMatchers("/admin").hasAnyAuthority("USER","CREATOR","EDITOR","ADMIN")
+		.requestMatchers("/create").hasAnyAuthority("ADMIN","CREATOR")
+		.requestMatchers("/edit/**").hasAnyAuthority("ADMIN","EDITOR")
+		.requestMatchers("/delete/**").hasAnyAuthority("ADMIN")
+		.anyRequest().authenticated()
+		.and()
+		
+		.formLogin()
+		.loginPage("/login")
+		.usernameParameter("email")
+		.loginProcessingUrl("/loginbtn")
+		
+		.permitAll()
+		.and()
+		.logout()
+		
+		.logoutSuccessUrl("/logout_sucess")
+		.permitAll()
+		
+		.and()
+		.exceptionHandling().accessDeniedPage("/403");
+		
+		 return http.build();
+	}
+
+	@Bean
+	public WebSecurityCustomizer webSecurityCustomizer() {
+		return (web) -> web.ignoring().requestMatchers("/images/**", "/js/**", "/webjars/**");
+	}
+
+}
+
+==============================
+
+
+UserController
+
+
+
+
+package com.example.demo;
+
+import java.security.Principal;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.validation.BindingResult;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+
+import jakarta.validation.Valid;
+
+
+
+
+@Controller
+public class UserController {
+	
+	@Autowired
+	private UserRepository userRepo;
+	
+	
+	@GetMapping("/login")
+	public String loginPage() {	
+		
+		return "frontend/login";
+	}
+	
+	@PostMapping("/loginbtn")
+	public String loginButton(Model model, @RequestParam String email, 
+			@RequestParam String password) {
+
+		Optional<User> userList = userRepo.findByEmail(email);
+		
+		if(userList == null || userList.isEmpty()) {
+			
+			model.addAttribute("message","The username doesn't exist!");
+			return "frontend/login";
+		}
+		else {
+			User user = userList.get();
+			if(password.equals(user.getPassword())) {
+				return "frontend/home";			
+			}
+			else {
+				model.addAttribute("password","The password you entered is wrong");
+				return "frontend/login";
+			}
+
+		}
+		
+	}
+	@GetMapping("/register")
+	public String registerPage(Model model) {
+		
+		model.addAttribute("user",new User());
+		return "frontend/form";
+	}
+	
+	@PostMapping("/registerbtn")
+	public String registerButton(
+			Model model,
+			@RequestParam("username") String username,
+			@RequestParam("email") String email,
+			@RequestParam("password") String password,
+			@RequestParam("confirmpassword") String confirmpassword,
+			@Valid @ModelAttribute("user") User user,
+			BindingResult bindingResult
+			) {
+		
+		//System.out.println("Flag 1...");
+		
+		Role newrole=new Role();
+		newrole.setName("USER");
+		
+		 Set<Role> roles=new HashSet<>();
+		 roles.add(newrole);
+		
+		  if(bindingResult.hasErrors()) {
+			  
+			  System.out.println("Flag 2...");
+			  System.out.println("Validation Errors Messages...");
+			  return "frontend/form";
+		  }
+		  
+			  
+		if(password.equals(confirmpassword)) {
+				  
+				  System.out.println("Flag 3...");
+				  User newUser=new User();
+				  newUser.setUsername(username);
+				  newUser.setEmail(email);
+				  BCryptPasswordEncoder passwordEncoder=new BCryptPasswordEncoder(); 
+				  newUser.setPassword(passwordEncoder.encode(confirmpassword));
+				  newUser.setRoles(roles);
+				  newUser.setEnable(true);
+				  
+				  userRepo.save(newUser);				  
+				  return "frontend/home";
+				  
+			}
+			else {
+				  System.out.println("Flag 4...");
+				  model.addAttribute("message","Passwords do not match...");
+				  return "frontend/form";
+			}		
+			  
+			  
+		  	  
+	}
+	
+	
+	@GetMapping("/home")
+	public String homePage(Model model,Principal principal) {
+		String username = principal.getName();
+		
+		model.addAttribute("username",username);
+		return "frontend/home";
+	}
+
+}
+
+
+=====================================
+
+UserRepository
+
+
+package com.example.demo;
+
+import java.util.Optional;
+
+import org.springframework.data.jdbc.repository.query.Query;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public interface UserRepository extends JpaRepository<User,Long> {
+
+	@Query("SELECT u FROM User as u WHERE u.email=?1")
+	Optional<User> findByEmail(String useremail);
+	
+}
+
+
+==========================
+
+User.java
+
+
+package com.example.demo;
+
+import jakarta.persistence.*;
+import jakarta.persistence.CascadeType;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinTable;
+import jakarta.persistence.ManyToMany;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+
+import java.lang.String;
+import java.util.HashSet;
+import java.util.Set;
+
+
+
+@Entity(name="users")
+public class User {
+	
+	@Id
+	@GeneratedValue(strategy=GenerationType.IDENTITY)
+	private Long id;
+	
+
+	@NotBlank(message="Username is required...")
+	@Size(min=3,max=20)
+	private String username;
+	
+
+	@NotBlank
+	@Email(message="Please enter a valid email-address")
+	private String email;
+	
+
+	@NotBlank(message="Password is required")
+	private String password;
+	private boolean enable;
+	
+	@ManyToMany(cascade=CascadeType.ALL,fetch=FetchType.EAGER)
+	@JoinTable(
+		name="user_roles",
+		joinColumns=@JoinColumn(name="user_id"),
+		inverseJoinColumns=@JoinColumn(name="role_id")		
+	)
+	private Set<Role> roles=new HashSet<>();
+	
+	public Long getId() {
+		return id;
+	}
+
+	public void setId(Long id) {
+		this.id = id;
+	}
+
+	
+
+	public String getUsername() {
+		return username;
+	}
+
+	public void setUsername(String username) {
+		this.username = username;
+	}
+
+	public String getPassword() {
+		return password;
+	}
+
+	public void setPassword(String password) {
+		this.password = password;
+	}
+	
+	public boolean getEnable() {
+		return enable;
+	}
+	public void setEnable(Boolean enable) {
+		this.enable = enable;
+	}
+
+	public String getEmail() {
+		return email;
+	}
+
+	public void setEmail(String email) {
+		this.email = email;
+	}
+
+	public Set<Role> getRoles() {
+		return roles;
+	}
+	public void setRoles(Set<Role> roles) {
+		this.roles = roles;
+	}
+	
+
+	public void setEnable(boolean enable) {
+		this.enable = enable;
+	}
+
+	public User(long id, String username, String email, String password, Set<Role> roles, boolean enable) {
+		super();
+		this.id = id;
+		this.username = username;
+		this.email = email;
+		this.password = password;
+		this.roles = roles;
+		this.enable = enable;
+	}
+	
+	public User() {
+		super();
+	}
+
+	
+	
+
+	
+	
+	
+	
+}
+
+
+=============================
+
+MyUserDetails
+
+
+package com.example.demo;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Set;
+
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.userdetails.UserDetails;
+
+public class MyUserDetails implements UserDetails {
+	
+	private static final long serialVersionUID=1L;
+	private User user;
+	
+	public MyUserDetails(User user) {
+		
+		this.user=user;
+	}
+	
+	
+	public Collection <? extends GrantedAuthority> getAuthorities(){
+		
+		Set <Role> roles=user.getRoles();
+		
+		List<SimpleGrantedAuthority> authorities=new ArrayList<>();		
+		for(Role role:roles) {
+			authorities.add(new SimpleGrantedAuthority(role.getName()));
+			
+		}
+		return authorities;
+		
+	}
+
+
+	@Override
+	public String getPassword() {
+		// TODO Auto-generated method stub
+		return user.getPassword();
+	}
+
+
+	@Override
+	public String getUsername() {
+		// TODO Auto-generated method stub
+		return user.getEmail();
+	}
+
+
+	@Override
+	public boolean isAccountNonExpired() {
+		// TODO Auto-generated method stub
+		return true;
+	}
+
+
+	@Override
+	public boolean isAccountNonLocked() {
+		// TODO Auto-generated method stub
+		return true;
+	}
+
+
+	@Override
+	public boolean isCredentialsNonExpired() {
+		// TODO Auto-generated method stub
+		return true;
+	}
+
+
+	@Override
+	public boolean isEnabled() {
+		// TODO Auto-generated method stub
+		return true;
+	}
+	
+
+}
+
+===========================================
+
+MyUserDetailsService
+
+
+package com.example.demo;
+
+import java.util.Optional;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.stereotype.Service;
+
+@Service
+public class MyUserDetailsService implements UserDetailsService {
+
+	@Autowired
+	UserRepository repo;
+	
+	@Override
+	public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException{
+		Optional<User> user=repo.findByEmail(email);
+		user.orElseThrow(()->new UsernameNotFoundException(email+"not found."));
+		return user.map(MyUserDetails::new).get();
+	}
+	
+}
+
+
+==================================
+
+MVCConfig
+
+
+package com.example.demo;
+
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+@Configuration
+public class MvcConfig implements WebMvcConfigurer {
+	
+	@Override
+	public void addResourceHandlers(ResourceHandlerRegistry registry) {
+		exposeDirectory("item-images", registry);
+		exposeDirectory("settings-images", registry);
+	}
+	
+	private void exposeDirectory(String dirName, ResourceHandlerRegistry registry) {
+		Path uploadDir = Paths.get(dirName);
+		String uploadPath = uploadDir.toFile().getAbsolutePath();
+		
+		if (dirName.startsWith("../")) dirName = dirName.replace("../", "/");
+		
+		registry.addResourceHandler("/" + dirName + "/**").addResourceLocations("file:/"+ uploadPath + "/");
+	}
+
+}
+
+================================
+
+Application.properties
+
+
+spring.datasource.url=jdbc:mysql://localhost:3306/shopdb
+spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.MySQL8Dialect
+spring.datasource.username=root
+
+spring.datasource.password=
+spring.jpa.hibernate.ddl-auto=update
+spring.jpa.show-sql=true
+spring.cache.type=NONE
+
+spring.thymeleaf.prefix=classpath:/templates/
+spring.thymeleaf.suffix=.html
+
+=====================================
+
+
+Role.java
+
+
+package com.example.demo;
+
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+
+@Entity
+@Table(name="roles")
+public class Role {
+	
+	@Id
+	@GeneratedValue(strategy=GenerationType.IDENTITY)
+
+	private int id;
+	private String name;
+	
+	public int getId() {
+		return id;
+	}
+	public void setId(int id) {
+		this.id = id;
+	}
+	public String getName() {
+		return name;
+	}
+	public void setName(String name) {
+		this.name = name;
+	}
+	
+	public Role() {
+		
+	}
+	public Role(int id, String name) {
+		super();
+		this.id = id;
+		this.name = name;
+	}
+	
+
+}
+
+
+==========================
+
+Register.html
+
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+
+	<head>
+    <meta charset="utf-8">
+    <title>Restoran - Bootstrap Restaurant Template</title>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <meta content="" name="keywords">
+    <meta content="" name="description">
+
+    <!-- Favicon -->
+    <link href="img/favicon.ico" rel="icon">
+
+    <!-- Google Web Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600&family=Nunito:wght@600;700;800&family=Pacifico&display=swap" rel="stylesheet">
+
+    <!-- Icon Font Stylesheet -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.10.0/css/all.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.4.1/font/bootstrap-icons.css" rel="stylesheet">
+
+    <!-- Libraries Stylesheet -->
+    <link th:href="@{frontend/lib/animate/animate.min.css}" rel="stylesheet">
+    <link th:href="@{frontend/lib/owlcarousel/assets/owl.carousel.min.css}" rel="stylesheet">
+    <link th:href="@{frontend/lib/tempusdominus/css/tempusdominus-bootstrap-4.min.css}" rel="stylesheet" />
+
+    <!-- Customized Bootstrap Stylesheet -->
+    <link th:href="@{frontend/css/bootstrap.min.css}" rel="stylesheet">
+
+    <!-- Template Stylesheet -->
+    <link th:href="@{frontend/css/style.css}" rel="stylesheet">
+   </head> 
+   <style>
+       .center-container {
+	      display: flex;
+	      justify-content: center;
+	      align-items: center;
+	      height: 50vh;
+	      
+
+    }
+    </style>
+<body>
+
+	<div class="container my-4 text-center">
+	<span class="text-dark" style="font-size: 1cm;"> 
+		Welcome to Restoran Restaurant</span>
+	<hr>
+	</div>
+	
+	<div class="container my-4">
+	<div class="row center-container" > 
+		
+		<div class="col-lg-4 p-5 bg-primary text-center" style="border: solid transparent; border-radius: 25px;">
+				<form th:action="@{/registerbtn}" method="post" th:object="${user}">
+				
+					<div class="form-group mb-3 text-center">
+						<span th:if="${message}" th:text="${message}">Passwords doest not match...</span>
+					</div>
+					
+					<div class="form-group mb-3 text-center">
+						<i class="fa fa-user" style="color: white;font-size:100px;"></i>
+					</div>
+					
+					<div class="form-group mb-3 text-white">
+						<i class="fa-solid fa fa-lock" style="color: white;"></i> Register Here!
+					</div>
+					
+					<div class="form-group mb-3">
+						<input type="text" th:field="*{username}" name="username" placeholder="Enter your username" class="form-control">
+						<span th:if="${#fields.hasErrors('username')}" th:errors="*{username}">Errors</span>
+					</div>
+					
+					<div class="form-group mb-3">
+						<input type="email"   th:field="*{email}" name="email" placeholder="Enter your Email" class="form-control">
+						<span th:if="${#fields.hasErrors('email')}" th:errors="*{email}">Errors</span>
+					</div>
+					
+					<div class="form-group mb-3">
+						<input type="text" th:field="*{password}"   name="password"placeholder="Enter your Password" class="form-control">
+						<span th:if="${#fields.hasErrors('password')}" th:errors="*{password}">Errors</span>
+					</div>
+
+					<div class="form-group mb-3">
+						<input type="text"  name="confirmpassword" placeholder="Confirm your Password" class="form-control">
+						
+					</div>
+										
+					<div class="form-group mb-3">
+						<button type="submit" class="btn btn-primary"><i class="fa-solid fa-sign-in"></i>  Sign up </button>
+					</div>
+					
+					<div class="form-group mt-3" style="color: black;"> Member<i class="fa fa-users"></i>
+						<a th:href="@{/login}" style="color: white;">  Login</a>
+					</div>
+			  </form>
+		
+		</div>
+	</div>
+
+</div>
+</body>
+</html>
+
+
+==================
+
+Login.html
+
+
+<!DOCTYPE html>
+<html lang="en">
+
+	<head>
+    <meta charset="utf-8">
+    <title>Restoran - Bootstrap Restaurant Template</title>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <meta content="" name="keywords">
+    <meta content="" name="description">
+
+    <!-- Favicon -->
+    <link href="img/favicon.ico" rel="icon">
+
+    <!-- Google Web Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600&family=Nunito:wght@600;700;800&family=Pacifico&display=swap" rel="stylesheet">
+
+    <!-- Icon Font Stylesheet -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.10.0/css/all.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.4.1/font/bootstrap-icons.css" rel="stylesheet">
+
+    <!-- Libraries Stylesheet -->
+    <link th:href="@{frontend/lib/animate/animate.min.css}" rel="stylesheet">
+    <link th:href="@{frontend/lib/owlcarousel/assets/owl.carousel.min.css}" rel="stylesheet">
+    <link th:href="@{frontend/lib/tempusdominus/css/tempusdominus-bootstrap-4.min.css}" rel="stylesheet" />
+
+    <!-- Customized Bootstrap Stylesheet -->
+    <link th:href="@{frontend/css/bootstrap.min.css}" rel="stylesheet">
+
+    <!-- Template Stylesheet -->
+    <link th:href="@{frontend/css/style.css}" rel="stylesheet">
+   </head> 
+   <style>
+       .center-container {
+	      display: flex;
+	      justify-content: center;
+	      align-items: center;
+	      height: 50vh;
+	      
+
+    }
+    </style>
+<body>
+
+	<div class="container my-4 text-center">
+	<span class="text-dark" style="font-size: 1cm;"> 
+		Welcome to Restoran Restaurant</span>
+	<hr>
+	</div>
+	
+	<div class="container my-4">
+	<div class="row center-container" > 
+		
+		<div class="col-lg-4 p-5 bg-primary text-center" style="border: solid transparent; border-radius: 25px;">
+				<form th:action="@{/loginbtn}" method="post">		
+					<div class="form-group mb-3 text-center">
+						<span th:if="${password}" th:text="${password}" class="form-control"> Password is wrong</span>						
+						<span th:if="${message}" th:text="${message}" class="form-control"> Username doesn't exist</span>
+					</div>
+									
+					<div class="form-group mb-3 text-center">
+						<i class="fa fa-user" style="color: white;font-size:100px;"></i>
+					</div>
+					
+					<div class="form-group mb-3 text-white">
+						<i class="fa-solid fa fa-lock" style="color: white;"></i>  Sign in Page
+					</div>
+					
+					<div class="form-group mb-3">
+						<input type="text" name="email" placeholder="Email" class="form-control">
+					</div>
+					
+					<div class="form-group mb-3">
+						<input type="text" name="password" placeholder="Password" class="form-control">
+					</div>
+					
+					<div class="form-group mb-3">
+						<button type="submit" class="btn btn-primary"><i class="fa-solid fa-sign-in"></i>  Login</button>
+					</div>
+					
+					<div class="form-group mt-3" style="color: black;"> Member<i class="fa fa-users"></i>
+						<a th:href="@{/register}" style="color: white;">  Register now</a>
+					</div>
+			  </form>
+		
+		</div>
+	</div>
+
+</div>
+</body>
+</html>
+
+================================
