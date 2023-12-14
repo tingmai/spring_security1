@@ -1,0 +1,396 @@
+
+UserServiceImpl.java
+--------------------------------
+
+package net.nc.springboot.service.impl;
+
+import net.javaguides.springboot.dto.UserDto;
+import net.javaguides.springboot.entity.Role;
+import net.javaguides.springboot.entity.User;
+import net.javaguides.springboot.repository.RoleRepository;
+import net.javaguides.springboot.repository.UserRepository;
+import net.javaguides.springboot.service.UserService;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Collectors;
+
+@Service
+public class UserServiceImpl implements UserService {
+
+    private UserRepository userRepository;
+    private RoleRepository roleRepository;
+    private PasswordEncoder passwordEncoder;
+
+    public UserServiceImpl(UserRepository userRepository,
+                           RoleRepository roleRepository,
+                           PasswordEncoder passwordEncoder) {
+        this.userRepository = userRepository;
+        this.roleRepository = roleRepository;
+        this.passwordEncoder = passwordEncoder;
+    }
+
+    @Override
+    public void saveUser(UserDto userDto) {
+        User user = new User();
+        user.setName(userDto.getFirstName() + " " + userDto.getLastName());
+        user.setEmail(userDto.getEmail());
+        // encrypt the password using spring security
+        user.setPassword(passwordEncoder.encode(userDto.getPassword()));
+
+        Role role = roleRepository.findByName("ROLE_ADMIN");
+        if(role == null){
+            role = checkRoleExist();
+        }
+        user.setRoles(Arrays.asList(role));
+        userRepository.save(user);
+    }
+
+    @Override
+    public User findUserByEmail(String email) {
+        return userRepository.findByEmail(email);
+    }
+
+    @Override
+    public List<UserDto> findAllUsers() {
+        List<User> users = userRepository.findAll();
+        return users.stream()
+                .map((user) -> mapToUserDto(user))
+                .collect(Collectors.toList());
+    }
+
+    private UserDto mapToUserDto(User user){
+        UserDto userDto = new UserDto();
+        String[] str = user.getName().split(" ");
+        userDto.setFirstName(str[0]);
+        userDto.setLastName(str[1]);
+        userDto.setEmail(user.getEmail());
+        return userDto;
+    }
+
+    private Role checkRoleExist(){
+        Role role = new Role();
+        role.setName("ROLE_ADMIN");
+        return roleRepository.save(role);
+    }
+}
+
+
+=================================
+
+
+User.java
+
+package com.example.registrationlogindemo.dto;
+
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotEmpty;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Entity(name="users")
+public class User
+{
+    private Long id;
+    @NotEmpty
+    private String firstName;
+    @NotEmpty
+    private String lastName;
+    @NotEmpty(message = "Email should not be empty")
+    @Email
+    private String email;
+    @NotEmpty(message = "Password should not be empty")
+    private String password;
+}
+
+=================================
+
+LoginController
+
+package net.javaguides.springboot.controller;
+
+import jakarta.validation.Valid;
+import net.javaguides.springboot.dto.User;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.web.bind.annotation.GetMapping;
+
+@Controller
+public class LoginController {
+
+    private UserService userService;
+
+    public AuthController(UserService userService) {
+        this.userService = userService;
+    }
+
+    // handler method to handle home page request
+    @GetMapping("/index")
+    public String home(){
+        return "index";
+    }
+
+    // handler method to handle login request
+    @GetMapping("/login")
+    public String login(){
+        return "login";
+    }
+
+    // handler method to handle user registration form request
+    @GetMapping("/register")
+    public String showRegistrationForm(Model model){
+        // create model object to store form data
+        UserDto user = new UserDto();
+        model.addAttribute("user", user);
+        return "register";
+    }
+
+    // handler method to handle user registration form submit request
+    @PostMapping("/register/save")
+    public String registration(@Valid @ModelAttribute("user") UserDto userDto,
+                               BindingResult result,
+                               Model model){
+        User existingUser = userService.findUserByEmail(userDto.getEmail());
+
+        if(existingUser != null && existingUser.getEmail() != null && !existingUser.getEmail().isEmpty()){
+            result.rejectValue("email", null,
+                    "There is already an account registered with the same email");
+        }
+
+        if(result.hasErrors()){
+            model.addAttribute("user", userDto);
+            return "/register";
+        }
+
+        userService.saveUser(userDto);
+        return "redirect:/register?success";
+    }
+
+    // handler method to handle list of users
+    @GetMapping("/users")
+    public String users(Model model){
+        List<UserDto> users = userService.findAllUsers();
+        model.addAttribute("users", users);
+        return "users";
+    }
+}
+
+
+
+
+==========================================
+
+Register.html
+
+
+<!DOCTYPE html>
+<html lang="en"
+  xmlns:th="http://www.thymeleaf.org"
+>
+<head>
+    <meta charset="UTF-8">
+    <title>Registration and Login System</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css"
+        rel="stylesheet"
+        integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC"
+        crossorigin="anonymous">
+</head>
+<body>
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+  <div class="container-fluid">
+    <a class="navbar-brand" th:href="@{/index}">Registration and Login System</a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarSupportedContent" aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="navbarSupportedContent">
+      <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+        <li class="nav-item">
+          <a class="nav-link active" aria-current="page" th:href="@{/login}">Login</a>
+        </li>
+      </ul>
+    </div>
+  </div>
+</nav>
+<br /><br /><br />
+<div class="container">
+  <div class="row col-md-8 offset-md-2">
+    <div class="card">
+      <div class="card-header">
+          <h2 class="text-center">Registration</h2>
+      </div>
+      <div th:if="${param.success}">
+          <div class="alert alert-info">
+            You have successfully registered our app!
+          </div>
+      </div>
+      <div class="card-body">
+          <form
+            method="post"
+            role="form"
+            th:action="@{/register/save}"
+            th:object="${user}"
+          >
+            <div class="form-group mb-3">
+              <label class="form-label">First Name</label>
+              <input
+                      class="form-control"
+                      id="firstName"
+                      name="firstName"
+                      placeholder="Enter first name"
+                      th:field="*{firstName}"
+                      type="text"
+              />
+              <p th:errors = "*{firstName}" class="text-danger"
+              th:if="${#fields.hasErrors('firstName')}"></p>
+            </div>
+
+            <div class="form-group mb-3">
+              <label class="form-label">Last Name</label>
+              <input
+                      class="form-control"
+                      id="lastName"
+                      name="lastName"
+                      placeholder="Enter last name"
+                      th:field="*{lastName}"
+                      type="text"
+              />
+              <p th:errors = "*{lastName}" class="text-danger"
+                 th:if="${#fields.hasErrors('lastName')}"></p>
+            </div>
+
+            <div class="form-group mb-3">
+              <label class="form-label">Email</label>
+              <input
+                      class="form-control"
+                      id="email"
+                      name="email"
+                      placeholder="Enter email address"
+                      th:field="*{email}"
+                      type="email"
+              />
+              <p th:errors = "*{email}" class="text-danger"
+                 th:if="${#fields.hasErrors('email')}"></p>
+            </div>
+
+            <div class="form-group mb-3">
+              <label class="form-label">Password</label>
+              <input
+                      class="form-control"
+                      id="password"
+                      name="password"
+                      placeholder="Enter password"
+                      th:field="*{password}"
+                      type="password"
+              />
+              <p th:errors = "*{password}" class="text-danger"
+                 th:if="${#fields.hasErrors('password')}"></p>
+            </div>
+            <div class="form-group">
+              <button class="btn btn-primary" type="submit">Register</button>
+              <span>Already registered? <a th:href="@{/login}">Login here</a></span>
+            </div>
+          </form>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
+
+=======================================================
+
+
+SpringSecurity.java
+
+
+@Configuration
+@EnableWebSecurity
+public class SpringSecurity {
+
+    @Autowired
+    private UserDetailsService userDetailsService;
+
+    @Bean
+    public static PasswordEncoder passwordEncoder(){
+        return new BCryptPasswordEncoder();
+    }
+
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http.csrf().disable()
+                .authorizeHttpRequests((authorize) ->
+                        authorize.requestMatchers("/register/**").permitAll()
+                                .requestMatchers("/index").permitAll()
+                                .requestMatchers("/users").hasRole("ADMIN")
+                ).formLogin(
+                        form -> form
+                                .loginPage("/login")
+                                .loginProcessingUrl("/login")
+                                .defaultSuccessUrl("/users")
+                                .permitAll()
+                ).logout(
+                        logout -> logout
+                                .logoutRequestMatcher(new AntPathRequestMatcher("/logout"))
+                                .permitAll()
+                );
+        return http.build();
+    }
+
+    @Autowired
+    public void configureGlobal(AuthenticationManagerBuilder auth) throws Exception {
+        auth
+                .userDetailsService(userDetailsService)
+                .passwordEncoder(passwordEncoder());
+    }
+}
+
+=======================================================
+
+CustomerUserDetailsService.java
+
+
+@Service
+public class CustomUserDetailsService implements UserDetailsService {
+
+    private UserRepository userRepository;
+
+    public CustomUserDetailsService(UserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
+
+    @Override
+    public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
+        User user = userRepository.findByEmail(email);
+
+        if (user != null) {
+            return new org.springframework.security.core.userdetails.User(user.getEmail(),
+                    user.getPassword(),
+                    mapRolesToAuthorities(user.getRoles()));
+        }else{
+            throw new UsernameNotFoundException("Invalid username or password.");
+        }
+    }
+
+    private Collection < ? extends GrantedAuthority> mapRolesToAuthorities(Collection <Role> roles) {
+        Collection < ? extends GrantedAuthority> mapRoles = roles.stream()
+                .map(role -> new SimpleGrantedAuthority(role.getName()))
+                .collect(Collectors.toList());
+        return mapRoles;
+    }
+}
+
+
+
+
+
+
+
+
