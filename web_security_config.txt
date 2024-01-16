@@ -1,6 +1,215 @@
 
 
 
+---------------------
+UserService.java
+-------------------
+
+
+package net.northerncity;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+@Service
+public class UserService {
+
+	@Autowired
+	private UserRepository repo;
+	
+	public void processOAuthPostLogin(String username) {
+		User existUser = repo.getUserByUsername(username);
+		
+		if (existUser == null) {
+			User newUser = new User();
+			newUser.setUsername(username);
+			newUser.setProvider(Provider.GOOGLE);
+			newUser.setEnabled(true);			
+			
+			repo.save(newUser);
+			
+			System.out.println("Created new user: " + username);
+		}
+		
+	}
+	
+}
+
+
+
+
+------------------------------
+UserDetailsServiceImpl.java
+-----------------------------
+package net.northerncity;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+
+public class UserDetailsServiceImpl implements UserDetailsService {
+
+	@Autowired
+	private UserRepository userRepository;
+	
+	@Override
+	public UserDetails loadUserByUsername(String username) 
+			throws UsernameNotFoundException {
+		User user = userRepository.getUserByUsername(username);
+		
+		if (user == null) {
+			throw new UsernameNotFoundException("Could not find user");
+		}
+		
+		return new MyUserDetails(user);
+	}
+
+}
+
+
+
+
+
+----------------
+User.java
+---------------
+
+package net.northerncity;
+
+import java.util.HashSet;
+import java.util.Set;
+
+import javax.persistence.CascadeType;
+import javax.persistence.Column;
+import javax.persistence.Entity;
+import javax.persistence.EnumType;
+import javax.persistence.Enumerated;
+import javax.persistence.FetchType;
+import javax.persistence.GeneratedValue;
+import javax.persistence.GenerationType;
+import javax.persistence.Id;
+import javax.persistence.JoinColumn;
+import javax.persistence.JoinTable;
+import javax.persistence.ManyToMany;
+import javax.persistence.Table;
+
+@Entity
+@Table(name = "users")
+public class User {
+
+	@Id
+	@Column(name = "user_id")
+	@GeneratedValue(strategy = GenerationType.IDENTITY)
+	private Long id;
+
+	private String username;
+	private String password;
+	private boolean enabled;
+	
+	@Enumerated(EnumType.STRING)
+	private Provider provider;
+	
+	@ManyToMany(cascade = CascadeType.ALL, fetch = FetchType.EAGER)
+	@JoinTable(
+			name = "users_roles",
+			joinColumns = @JoinColumn(name = "user_id"),
+			inverseJoinColumns = @JoinColumn(name = "role_id")
+			)
+	private Set<Role> roles = new HashSet<>(); 
+
+	public Long getId() {
+		return id;
+	}
+
+	public void setId(Long id) {
+		this.id = id;
+	}
+
+	public String getUsername() {
+		return username;
+	}
+
+	public void setUsername(String username) {
+		this.username = username;
+	}
+
+	public String getPassword() {
+		return password;
+	}
+
+	public void setPassword(String password) {
+		this.password = password;
+	}
+
+	public boolean isEnabled() {
+		return enabled;
+	}
+
+	public void setEnabled(boolean enabled) {
+		this.enabled = enabled;
+	}
+
+	public Set<Role> getRoles() {
+		return roles;
+	}
+
+	public void setRoles(Set<Role> roles) {
+		this.roles = roles;
+	}
+
+	public Provider getProvider() {
+		return provider;
+	}
+
+	public void setProvider(Provider provider) {
+		this.provider = provider;
+	}
+	
+	
+}
+
+
+
+-----------------
+Role.java
+---------------
+
+package net.northerncity;
+
+import javax.persistence.Column;
+import javax.persistence.Entity;
+import javax.persistence.GeneratedValue;
+import javax.persistence.GenerationType;
+import javax.persistence.Id;
+import javax.persistence.Table;
+
+@Entity
+@Table(name = "roles")
+public class Role {
+	@Id
+	@Column(name = "role_id")
+	@GeneratedValue(strategy = GenerationType.IDENTITY)
+	private Integer id;
+	
+	private String name;
+	public Integer getId() {
+		return id;
+	}
+	public void setId(Integer id) {
+		this.id = id;
+	}
+	public String getName() {
+		return name;
+	}
+	public void setName(String name) {
+		this.name = name;
+	}
+	
+	
+}
+
+
 
 -------------------
 Provider.java
